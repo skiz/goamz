@@ -52,6 +52,12 @@ type Owner struct {
 	DisplayName string
 }
 
+// Options for customizing requests
+type RequestOptions struct {
+	Headers map[string][]string
+	Params  url.Values
+}
+
 var attempts = aws.AttemptStrategy{
 	Min:   5,
 	Total: 5 * time.Second,
@@ -172,8 +178,8 @@ func (b *Bucket) DelBucket() (err error) {
 // Get retrieves an object from an S3 bucket.
 //
 // See http://goo.gl/isCO7 for details.
-func (b *Bucket) Get(path string) (data []byte, err error) {
-	body, err := b.GetReader(path)
+func (b *Bucket) Get(path string, options ...RequestOptions) (data []byte, err error) {
+	body, err := b.GetReader(path, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +191,8 @@ func (b *Bucket) Get(path string) (data []byte, err error) {
 // GetReader retrieves an object from an S3 bucket.
 // It is the caller's responsibility to call Close on rc when
 // finished reading.
-func (b *Bucket) GetReader(path string) (rc io.ReadCloser, err error) {
-	resp, err := b.GetResponse(path)
+func (b *Bucket) GetReader(path string, options ...RequestOptions) (rc io.ReadCloser, err error) {
+	resp, err := b.GetResponse(path, options...)
 	if resp != nil {
 		return resp.Body, err
 	}
@@ -196,14 +202,14 @@ func (b *Bucket) GetReader(path string) (rc io.ReadCloser, err error) {
 // GetResponse retrieves an object from an S3 bucket returning the http response
 // It is the caller's responsibility to call Close on rc when
 // finished reading.
-func (b *Bucket) GetResponse(path string) (*http.Response, error) {
-	return b.getResponseParams(path, nil)
+func (b *Bucket) GetResponse(path string, options ...RequestOptions) (*http.Response, error) {
+	return b.getResponse(path, options...)
 }
 
 // GetTorrent retrieves an Torrent object from an S3 bucket an io.ReadCloser.
 // It is the caller's responsibility to call Close on rc when finished reading.
 func (b *Bucket) GetTorrentReader(path string) (io.ReadCloser, error) {
-	resp, err := b.getResponseParams(path, url.Values{"torrent": {""}})
+	resp, err := b.getResponse(path, RequestOptions{Params: url.Values{"torrent": {""}}})
 	if err != nil {
 		return nil, err
 	}
@@ -222,11 +228,21 @@ func (b *Bucket) GetTorrent(path string) ([]byte, error) {
 	return ioutil.ReadAll(body)
 }
 
-func (b *Bucket) getResponseParams(path string, params url.Values) (*http.Response, error) {
+func (b *Bucket) parseOptions(options ...RequestOptions) RequestOptions {
+	opt := RequestOptions{}
+	if len(options) == 1 {
+		opt = options[0]
+	}
+	return opt
+}
+
+func (b *Bucket) getResponse(path string, options ...RequestOptions) (*http.Response, error) {
+	opt := b.parseOptions(options...)
 	req := &request{
-		bucket: b.Name,
-		path:   path,
-		params: params,
+		bucket:  b.Name,
+		path:    path,
+		params:  opt.Params,
+		headers: opt.Headers,
 	}
 	err := b.S3.prepare(req)
 	if err != nil {
