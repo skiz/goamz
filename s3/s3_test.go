@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"time"
@@ -113,6 +114,23 @@ func (s *S) TestGet(c *C) {
 
 	c.Assert(err, IsNil)
 	c.Assert(string(data), Equals, "content")
+}
+
+func (s *S) TestGetWithOptions(c *C) {
+	testServer.Response(200, nil, "cont")
+	b := s.s3.Bucket("bucket")
+	opts := &s3.RequestOptions{Headers: map[string][]string{}}
+	opts.Headers = http.Header{"Range": {"0-4"}}
+	opts.Params = url.Values{"foo": {"bar"}}
+	data, err := b.GetWithOptions("name", *opts)
+
+	req := testServer.WaitRequest()
+	c.Assert(req.Method, Equals, "GET")
+	c.Assert(req.RequestURI, Equals, "/bucket/name?foo=bar")
+	c.Assert(req.Header["Range"][0], Equals, "0-4")
+
+	c.Assert(err, IsNil)
+	c.Assert(string(data), Equals, "cont")
 }
 
 func (s *S) TestHead(c *C) {
