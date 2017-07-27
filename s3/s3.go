@@ -52,6 +52,12 @@ type Owner struct {
 	DisplayName string
 }
 
+// RequestOptions for customizing requests
+type RequestOptions struct {
+	Headers map[string][]string
+	Params  url.Values
+}
+
 var attempts = aws.AttemptStrategy{
 	Min:   5,
 	Total: 5 * time.Second,
@@ -182,11 +188,35 @@ func (b *Bucket) Get(path string) (data []byte, err error) {
 	return data, err
 }
 
+// Get retrieves an object from an S3 bucket with options.
+//
+// See http://goo.gl/isCO7 for details.
+func (b *Bucket) GetWithOptions(path string, options RequestOptions) (data []byte, err error) {
+	body, err := b.GetReaderWithOptions(path, options)
+	if err != nil {
+		return nil, err
+	}
+	data, err = ioutil.ReadAll(body)
+	body.Close()
+	return data, err
+}
+
 // GetReader retrieves an object from an S3 bucket.
 // It is the caller's responsibility to call Close on rc when
 // finished reading.
 func (b *Bucket) GetReader(path string) (rc io.ReadCloser, err error) {
-	resp, err := b.GetResponse(path)
+	resp, err := b.GetResponseWithOptions(path, RequestOptions{})
+	if resp != nil {
+		return resp.Body, err
+	}
+	return nil, err
+}
+
+// GetReaderWithOptions retrieves an object from an S3 bucket with options.
+// It is the caller's responsibility to call Close on rc when
+// finished reading.
+func (b *Bucket) GetReaderWithOptions(path string, options RequestOptions) (rc io.ReadCloser, err error) {
+	resp, err := b.GetResponseWithOptions(path, options)
 	if resp != nil {
 		return resp.Body, err
 	}
@@ -197,13 +227,20 @@ func (b *Bucket) GetReader(path string) (rc io.ReadCloser, err error) {
 // It is the caller's responsibility to call Close on rc when
 // finished reading.
 func (b *Bucket) GetResponse(path string) (*http.Response, error) {
-	return b.getResponseParams(path, nil)
+	return b.getResponseWithOptions(path, RequestOptions{})
+}
+
+// GetResponseWithOptions retrieves an object from an S3 bucket returning the http response
+// It is the caller's responsibility to call Close on rc when
+// finished reading.
+func (b *Bucket) GetResponseWithOptions(path string, options RequestOptions) (*http.Response, error) {
+	return b.getResponseWithOptions(path, options)
 }
 
 // GetTorrent retrieves an Torrent object from an S3 bucket an io.ReadCloser.
 // It is the caller's responsibility to call Close on rc when finished reading.
 func (b *Bucket) GetTorrentReader(path string) (io.ReadCloser, error) {
-	resp, err := b.getResponseParams(path, url.Values{"torrent": {""}})
+	resp, err := b.getResponseWithOptions(path, RequestOptions{Params: url.Values{"torrent": {""}}})
 	if err != nil {
 		return nil, err
 	}
@@ -222,11 +259,12 @@ func (b *Bucket) GetTorrent(path string) ([]byte, error) {
 	return ioutil.ReadAll(body)
 }
 
-func (b *Bucket) getResponseParams(path string, params url.Values) (*http.Response, error) {
+func (b *Bucket) getResponseWithOptions(path string, options RequestOptions) (*http.Response, error) {
 	req := &request{
-		bucket: b.Name,
-		path:   path,
-		params: params,
+		bucket:  b.Name,
+		path:    path,
+		params:  options.Params,
+		headers: options.Headers,
 	}
 	err := b.S3.prepare(req)
 	if err != nil {
